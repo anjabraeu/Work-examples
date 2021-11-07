@@ -1,0 +1,224 @@
+---
+title: "GLM"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## Part  1: Poisson regerssion
+
+In this task we will explore how to apply generalized linear model (GLM) in R. We will use a data set where the dependent variable is number of doctor visits (docvis). We can see from the histogram of the data that a linear regression model is likely not going to fit well, being count data with a monotonically falling pmf (probability mass function). 
+
+```{r}
+library(tidyverse)
+library(haven)
+data <- read_dta(file = "mus17data.dta")
+data <- dplyr::select(data, c(age,medicaid,private,female,income,docvis,educyr,actlim,totchr))
+hist(data$docvis,breaks=50,xlim=c(0,70)) # truncate for visualisation
+```
+
+
+### task 1a)
+
+Use the `glm` function to train a regression model with count response, $docvis_i \in \mathbb{N}_0$. Read `help(glm)` to set up `model.poisson` so that one performs  Poisson regression on `docvis` including all other covariates. Which link function is assumed for Poisson regression in `glm` if one do not explicitly specify `link` argument?
+
+```{r}
+model.poisson = glm(docvis ~ ., data= data, family=poisson)
+
+task1a.linkfunction <- "The default link function for poisson regression is link = 'log'"
+```
+
+### task 1b)
+
+In the lecture $AIC$ was used to show highlight imporvement of fit for GLM moldes. 
+Now we will conduct stepwise model selection, based on $AIC$, to select covariates. To do this we will use the library `MASS` and the function `stepAIC` using backward selection. Backward selection works as follows:
+
+* Step 1: Select the full model (the largest model one allows), and compute the $AIC$ for the model.
+* Step 2: Remove one covariate at the time, and compute the $AIC$ for each reduced model.
+* Step 3: If a rescued model has lower $AIC$ than the full model go back to Step 3 with the reduced model being the new full model. Otherwise return the full model.
+
+You can read more about both forward and backward selection in [ESL] section 3.3 p.57-61.
+
+Use `help(stepAIC)` to perform backward selection for Poisson regression. Hint since we are using backwards direction we don't set the `scope` argument since the default options suffices here. 
+
+Additionally, find answers to the following two questions:
+
+1. Is the model selected by backward selection guaranteed to have the smallest $AIC$ among all Poisson regressions that we can train with the predictors at our disposal? Motivate your answer!
+
+2. What is the difference in $AIC$ between the selected model and the model with full covariates?” Extract the AIC values saved in `poisson.model` and `poisson.model.step` to answer this question.
+
+
+```{r}
+library(MASS)
+model.poisson.step <- stepAIC(model.poisson, direction= "backward")
+task1b.does.backward.select.best.model <- "No, the model selected by backwards selection is not guaranteed to have the smallest AIC among all possible combinations of covariates. This is due to the fact that there are a lot of possible combinations of covariates, which the backwards selection does not explore, but which may actually give a smaller AIC than the selected model. The backwards selection process drops one variable at a time (as long as the AIC of the reduced model is lower than of the model in the step before) in a given fashion. Once a variable is removed, it won't be added to the model again. In some cases however, the AIC may be lower if a previously removed variable would be added back to the model after some other variable(s) have been removed. But the backwards selection process does not consider this. Thus, while it often selects a model with the lowest AIC, there might be possible combinations of covariates that give a lower AIC than the selected model."
+task1b.AIC_diff <- model.poisson$aic - model.poisson.step$aic
+```
+
+### task 1 c)
+
+We will now examine how well the selected model fits the data. In the lecture we saw in the lecture that it is crucial that the distribution of the model fits that of the data. We will now diagnose the model fit for our Poisson model. In order to do we will use what is known as rootograms. Read sections 2.1-3 in [https://arxiv.org/pdf/1605.01311.pdf](Visualizing Count Data Regressions Using
+Rootograms) to understand how rootograms works. Install the package the `countreg` for using rootograms in R:
+```{r}
+#install.packages("countreg", repos="http://R-Forge.R-project.org")
+```
+
+
+Plot the rootogram for the model selected, using which everstyle you prefer. Describe the rootogram. Does the model selected in Task 1b fit the data well? Motivate your answer.
+
+
+
+```{r}
+library(countreg)
+rootogram(model.poisson.step, style="hanging")
+task1c.describe.rootogram <- "The plot shows a hanging rootgram of the selected model (without income). The x-axis gives the amount of doctor visits and the y-axis the square root of the observed (bars) or expected (red line) counts. Also, there is a reference line at 0, which highlights the differences between observed and expected frequencies of doctor visits for each countbin. The rootgram shows a wave-like pattern around the reference line, with the maximum of the expected frequency laying at 5 doctor visits. For 0-2 doctor visits, the bars cross the reference line and reach significantly below it. Similarly, for 14-28 doctor visits, the bars cross the reference line, but to a much smaller extent. On the other hand, the bars are not even close to reaching the reference line for the count bins indicating 4-12 doctor visits. The bars are closest to the reference line for 3 and 13 doctor visits."
+task1c.poisson.fit.rootogram <- "Since a hanging rootgram is depicted, whether the bars exceed (1), reach (2) or not reach (3) the reference indicates if the model (1) underpredicts, (2) predicts well or (3) overpredicts the frequency for a count bin. Since the bars never actually lie on the reference line, the model selected in task 1b) does not fit the data well. The 0-2 count bins are significantly underpredicted, meaning that the expected frequency lies way below the observed counts for these amounts of doctor visits. The count bins for 4-12 doctor visits on the other hand are clearly overpredicted, meaning that the predicted frequency lies way above the observed frequency. For the count bins 14-28, the model slightly underpredicts again. Only for 3 and 13 doctor visits, the model predicts a count that is close to the observed count. Thus, the rootgram shows that a great amount of overdispersion is not captured by the selected model."
+```
+
+
+## Part 2): Negative Binomial regression
+
+We saw in the lecture that Beta Binomial greatly improved the fit compared to the Binomal distribution due to that it allowed for overdispersion.
+A common extension of the Poisson model to account for overdispersion is the negative binomial distribution which have the following density:
+$$
+p(y_i; \mu, \theta)  = \frac{\Gamma(\theta+y_i)}{\Gamma(\theta)y!} \left(\frac{\mu}{\mu + \theta}\right)^{y}\left(\frac{\theta}{\mu + \theta}\right)^{\theta}
+$$
+
+where $E[Y] = \mu$ and $V[Y]= \mu + \frac{1}{\theta} \mu^2$, here the parameter $\phi$ allows for overdispersion.
+
+### task 2a)
+
+One can fit the negative binomial using `glm.nb` function.  Perform the same step as done for the Poisson model but know for negative binomial, i.e. first fit the full model, do backward selection, and plot the rootogram.
+
+Does the rootogram suggest that the negative binomial model fits the data better than the Poisson model? Motivate your answer. If you compare the final AIC for negative binomal regression and Poisson regression what does it say?
+```{r}
+
+model.negbin.full <- glm.nb(docvis ~ . , data=data)
+model.negbin.step <- stepAIC(model.negbin.full, direction = "backward")
+rootogram(model.negbin.step, style="hanging")
+task2a.rootogram.model.fit.data <- "The rootgram clearly shows that the negative binomial model fits the data much better than the poisson model. The deviation between the observed count bins and the expected values are much smaller than before, meaning that the model just slightly over- and underfits, but in general predicts values that are close to the observed values. However, it is still evident that the zero count bin is clearly underpredicted." 
+task2a.AIC_compare <- "Changing from a Poisson to a negative binomial model, the AIC drops by about 8947, such that the AIC of the negative binomial regression is much lower compared to the poisson regression. This reemphasizes the improved model fit."
+```
+
+### task 2b)
+Negative binomial is an overdispersed version Poisson regression. This also affect the certainty of the coefficients in regression.  Run  `summary` one both the Poisson and Negative binomial for the selected model. What do you see for an effect in the certainty of the parameter?
+
+
+```{r}
+summary(model.poisson.step)
+summary(model.negbin.step)
+task2b.coeff_res <- "The certainty of the coefficients in regression decrease significantly when changing from the poisson to a negative binomial model, which can be seen in the p-values (and standard errors). In the poisson model, the coefficients for all chosen covariates are significantly different from zero at the 0.001 significance level (i.e. with a 0.1% chance of being wrong), thus with a very high certainty. For the negative binomial model, the p-values of the variables are generally higher (except for totchr). The coefficients for private, educyr, actlim and totchr are significantly different from zero at the 0.001 singnificance level, but age and private only at the 0.5 and medicaid only at the 0.1 significance level. This means that the certainty of the parameters is generally lower for the negative binomial compared to the poisson model.
+
+For the poisson regression, the chosen coefficients have a significance level of 0.001, whereas for the negative binomial regression, only private, educyr, actlim and totchr have a significance level of 0.001. medicaid is chosen at a significance level of 0.05 and age at 0.1. Thus, the certainty of the parameters is generally lower for the negative binomial model."
+```
+
+
+## Part 3: Zero inflated regression
+Often dealing with count data the zero value is of special importance and might not be fitting the standard models.
+There exists two standard methods for dealing with this namely zero inflated model and hurdle model.
+
+We here focus on the zero inflated model.  Suppose $p(y;\mu,\theta)$ is the density of the negative binomial model the zero inflated density is given 
+$$
+p^{zero}(y; \theta,\mu, \pi ) = \pi^{zero} \delta_{0}(y) + (1-\pi^{zero}) p(y;\mu,\theta)
+$$
+here $\delta_0(y)$ takes value one at if $y=0$ zero else, and $\pi^{zero}$ is the probability of observing the zero class. 
+
+
+### task 3a)
+What is the probability of observing zero in the model above? Note we are not asking for a numerical value but a mathematical formula using $\pi^{zero}$ and $p(y;\mu,\theta)$.
+```{r}
+task3a.what.is.zero.prob <- "$ p^{zero}(0; \\theta,\\mu, \\pi )= \\pi^{zero} + (1-\\pi^{zero}) p(0;\\mu,\\theta) $ "
+```
+
+### task 3b)
+ave another look at the rootogram of the negative binomial distribution which you created in Task 2a. Does the corresponding negative binomial model correctly predict the number of zero counts? Motivate your answer.
+```{r}
+task3b.negbin.docvis.zero <- "No, it still underpredicts the number of zero counts since the count bin is below the reference line. That the deviation between predicted and observed frequency is negative is a general property/problem of this distribution. Compared to the poisson regression, it seems to at least slighlty reduce the error."
+
+```
+
+### task 3c)
+Often one only use a single  $\pi^{zero}$, but one can also use a logit model for $\pi^{zero}$ so that
+$$
+\pi^{zero}(x^T\beta) = logit^{-1}(x^T\beta)
+$$
+
+Now you are supposed to fit these models in R using the `zeroinfl` function in the package `countreg` function.
+Read the help instruction for `zeroinfl` and setup a full model using all covariates both for the negative binomial part and the zero inflation part.
+```{r}
+model.zero.negbin <- zeroinfl(docvis  ~ ., data=data, dist="negbin", link="logit")
+#link="logit" as default
+```
+
+### task 3d)
+Now do backward selections again and create the rootogram. Does the model fit the data better?
+What about the AIC of the final model, which model is best according to $AIC$ and what of all things starting from the full Poisson regression model gave the largest imporvment in $AIC$?
+```{r}
+model.zero.negbin.step <- stepAIC(model.zero.negbin, direction="backward")
+rootogram(model.zero.negbin.step, style="hanging")
+task3d.rootfit <- "Yes, the model fits the data better. It considerably improves the prediction for the zero countbin (slightly overfits it now though, but this can be neglected) and also slighlty improves the predictions for the other countbins."
+task3d.AIC     <- "Starting from the full poission regression model, the largest improvement in AIC was given by changing the distrbution from poisson to the negative binomial model. Overall, the zero-inflated negative binomial (with backwards selection) has the smallest AIC with about 21031 and thus is the best model according to the AIC."
+
+```
+
+
+
+## Part 4: multionmial regression and grouped lasso
+
+We will now perform grouped lasso regularization on a multinomial regression.
+The data we are studying is drug consumption data. Our response variable is usage of drugs (Cocaine , Crack, Ecstasy, and Heroin) and we have three possible responses, "never used", "used more than a year ago", and "used within a year". As explanatory variables we have personality test data, demographic data, and consumption of chocolate, alcohol, and nicotine.
+
+We start by loading the data and create the `X` matrix for the full model excluding the intercept (which will be fitted by `glmnet`). As the `y` variable should be the column `drugs.usage`. 
+
+```{r}
+drug.data <- readRDS('drug_train.RDS')
+X <- model.matrix(drugs.usage ~ -1+. ,data=drug.data)
+y <- drug.data$drugs.usage
+```
+
+### task 4a)
+Read the [vingettes](https://cran.r-project.org/web/packages/glmnet/vignettes/glmnet.pdf) on how to train a multionomial model with group lasso penalty using `glmnet`. Repeat the procedure for the `drug.data`. Which variable seems to increase the probability to have used drugs within a year the most if using the lambda selected by the one standard devation rule? Hint you can extract the coefficients using `coef`.
+```{r}
+library(glmnet)
+set.seed(12345)
+cvfit <- cv.glmnet(X, y, family = "multinomial", type.multinomial = "grouped", alpha=1)
+coef(cvfit, s="lambda.1se")$"within a year"
+task4a.which.effects.most <- "Chocolate.consumptionwithin a year with a coefficient of 0.569."
+```
+
+
+### task 4b)
+
+We will now evaluate the performance of the model on some hold out data.
+Use `predict` to generate predictions on the new data set, with coefficients taken from the `lambda.1se` option. There exists many different options for the argument `type` for the  `predict`. Explain what different output you get for the three different types: `type='class'`, `type='link'`, and  `type='response'`. What is the connection between the prediction generated in `type='class'` and  `type='response'`?
+```{r}
+library(caret)
+drug.data.test <- readRDS('drug_test.RDS')
+X.test <- model.matrix(drugs.usage ~ -1+. ,data=drug.data.test)
+y.test <- drug.data.test$drugs.usage
+y.pred.response <- predict(cvfit, newx=X.test,  type="response", s="lambda.1se")
+y.pred.class <- predict(cvfit, newx=X.test,  type="class", s="lambda.1se")
+y.pred.link <- predict(cvfit, newx=X.test,  type="link", s="lambda.1se")
+task4b.predict.response.is <- "Type= response returns a 3-dimensional array with the fitted probabilites for the mulitnomial model, i.e. the predicted probabilities for each class."
+task4b.predict.class.is    <- "Type = class returns a vector of the class labels of the dependent variable corresponding to the maximum probability, i.e. the label of the class that has the highest probability given X."
+task4b.predict.link.is     <- "Type = link gives a 3-dimensional array of the linear predictors for the multinomial model." 
+task4b.predict.connection.response.and.class    <- "Based on the fitted probabilies given by type=response, type=class returns the class label corresponding to the class with the maximum probability. Thus, the class is decided by the probabilities given by type=response. While response gives a numerical result, class gives a label assigned to the highest value out of the probabilities for all classes." 
+```
+
+### task 4c)
+
+Again `predict` to generate predictions on the new data set, with coefficients taken from the `lambda.1se` option. We examine the result using the confusion matrix: What is the accuracy of the model? 
+What would be the best accuracy you could get by always just a single class all the time?
+
+
+```{r}
+library(caret)
+drug.data.test <- readRDS('drug_test.RDS')
+X.test <-  model.matrix(drugs.usage ~ -1+. ,data=drug.data.test)
+y.test <- drug.data.test$drugs.usage
+y.pred <- predict(cvfit, newx=X.test,  type="class", s="lambda.1se")
+ConfMatrix <- caret::confusionMatrix(data=factor(y.pred), reference=y.test)
+task4c.accuracy <- ConfMatrix$overall["Accuracy"]
+tast4c.accuracy.single.class <- sum(ConfMatrix$table[1:3,1])/sum(ConfMatrix$table[1:3,1:3]) 
+# or: max(ConfMatrix$byClass[,"Prevalence"])
+```
