@@ -1,0 +1,358 @@
+---
+title: "Final Project"
+subtitle: "STAE04/DABN19: Data Visualization"
+author: "Anja Braeu"
+date: "`r Sys.Date()`"
+papersize: a4
+geometry: margin=4cm
+colorlinks: true
+output:
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, include = FALSE}
+# Setup options for R Markdown
+knitr::opts_chunk$set(
+  echo       = FALSE,    # Do not print code
+  warning    = FALSE,    # Suppress warnings
+  message    = FALSE,    # Suppress messages
+  fig.align  = "center", # Center figures
+  fig.width  = 2.7,      # Good standard figure width for single-panel figures
+  fig.height = 2.4       # Good standard figure height for single-panel figures
+)
+library(tidyverse)
+library(ggplot2)
+# Set a theme for ggplot2
+theme_set(theme_grey(base_size = 10))
+# Set options
+options(
+  digits = 3, # limit the number of significant digits
+  width  = 63 # limit the width of code output
+)
+```
+
+# Introduction
+```{r}
+setwd("C:/Users/anjab/Desktop/DABE 202122/3_Data Visualization/Project 6")
+hotel <- read.csv("hotel_bookings.csv")
+```
+
+The Covid-19 pandemic forced tourism to a hold. Most bookings had to be cancelled or postponed indefinitely, leaving many hotels empty for a long time. As tourism slowly returns to normal, this project aims to visually analyze which characteristics may possibly lead to a cancelled booking when no global pandemic impedes travelling. This may help hotels to better forecast their capacities and adjust cancellation policies accordingly.
+
+For this cause a dataset containing information on hotel bookings between July 2015 and August 2017 is used. The original data comes from the article `Hotel Booking Demand Datasets` by Nuno Antionio, Ana Almeida and Luis Nunes in 2019, but was tidied by Antoine Bichat and Thomas Mock in 2020 for #TidyTuesday. The tiedied version of the Hotel Booking Dataset can be found on [Kaggle](https://www.kaggle.com/jessemostipak/hotel-booking-demand). It is a very extensive dataset, offering 119.390 observations and 32 variables of different datatypes. Table 1 gives an overview of the variables that are used in the following visual analysis.
+
+```{r}
+variables <- tibble("Variable Name" = c("is_canceled", 
+                                        "hotel",
+                                   
+                                   "lead_time",
+                                   "arrival_date_ month",
+                                   "stays_in_week-end_nights",
+                                   "stays_in_week_ nights",
+                                   "adults",
+                                   "children",
+                                   "babies",
+                                   "country",
+                                   "is_repeated_ guest",
+                                   "adr"),
+                    "Type" = c("integer", "character", "integer", "factor", "integer", "integer", "integer", "integer", "integer", "character", "integer", "numeric"),
+                    "Description" = c("Dummy variable indicating whether booking was canceled (1) or not (0)",
+                                      "Type of Hotel (City or Resort)",
+                                      
+                                      "Number of days between booking and arrival date",
+                                      "Month of arrival",
+                                      "Number of weekend nights booked (Saturday, Sunday)",
+                                      "Number of week nights booked (Monday to Friday)",
+                                      "Number of Adults",
+                                      "Number of Children",
+                                      "Number of Babies",
+                                      "Country of origin (ISO 3155–3:2013 format) ",
+                                      "Dummy variable indicating whether booking is made from a repeated guest (1) or not (0)",
+                                      "Average daily rate of the hotel"
+                                      )
+
+)
+
+knitr::kable(variables, caption = "Overview of the used Variables, their Data Types and Description")
+```
+
+
+# Data Analysis
+In the following analysis, characteristics of bookings that are cancelled versus booking that are not cancelled are visually investigated. 
+
+## Tidying and Wrangling the data
+
+Since the dataset is optimized for visualisation and machine learning projects by the authors and further tidied for #TidyTuesday, it could potentially be used as it is for the exploratory analysis. However, some minor modifications are done. The dummy variables indicating if a booking was canceled and if the booking was made from a repeated guest were changed to a factor with expressive names for the levels. Further, the months of arrival were arranged in the right order. In the original dataset, the number of nights stayed at a hotel are split into weekend and week nights, which does not serve a purpose for this report. Thus, these variables are summarized into one, indicating the total number of nights stayed at a hotel. In order to then compute the total cost of the stay, the total number of nights stayed are multiplied with the average daily rate. Lastly, the variable stating the number of children is added to the `children` variable, as it would not yield any additional information for the cause of this analysis.
+
+```{r tidying, echo=FALSE, include=FALSE}
+#To factor
+hotel$is_canceled <- as.factor(hotel$is_canceled)
+hotel$is_repeated_guest <- as.factor(hotel$is_repeated_guest)
+
+#Order months
+hotel$arrival_date_month <-
+  factor(hotel$arrival_date_month, levels = month.name)
+
+#Creating two new columns to calculate total number of days stayed and total cost
+hotel <- hotel %>% 
+  mutate(stay_total_nights = stays_in_weekend_nights + stays_in_week_nights,
+       stay_total_cost = adr * stay_total_nights)
+#Children + babies
+hotel$children_all = hotel$children + hotel$babies
+
+
+
+```
+
+
+
+## Repeated guest
+First, the difference in cancellations between first-time and repeated guests is visualized. The mosaic plot in Figure 1 clearly shows that most guests are not repeated guests in a booked hotel. However, it is unsurprising that repeated guests seem less likely to cancel a booking than first-time guests. There are several possible reasons for this, for example that repeated guests already made a good experience with a certain hotel and make a more conscious decision for exactly this hotel than first-time guests that may even book several hotels for the same dates.
+
+
+```{r, fig.height=1.5, fig.width=6, fig.cap="Booking Status for First-Time and Repeated Guests"}
+library(productplots)
+hotel1 <- hotel
+levels(hotel1$is_canceled) <- c("Not Cancelled", "Cancelled")
+levels(hotel1$is_repeated_guest) <- c("First-Time Guest" , "Repeated Guest")
+prodplot(hotel1, ~ is_canceled + is_repeated_guest, alpha=0.9) +
+  aes(fill = is_canceled) +
+  scale_fill_manual(values = c("#F98125", "#5B84C4"),
+                name = "Booking Status",
+    breaks = c( "Cancelled", "Not Cancelled"),
+    label = c("Cancelled", "Not Cancelled"))+
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+```
+
+
+
+
+
+## Month of Arrival
+
+```{r, fig.height=3, fig.width=7, fig.cap="Number of Bookings and Cancellations by Month"}
+
+#calculate cancellation rate
+hotel_months <- hotel
+hotel_months$is_canceled <- as.factor(hotel_months$is_canceled)
+levels(hotel_months$is_canceled) <- c("not_canceled", "canceled")
+
+hotel_months1 = hotel_months %>%
+  group_by(arrival_date_month,is_canceled) %>%
+  summarize(n = n()) %>%
+  pivot_wider(arrival_date_month,
+              values_from = "n",
+              names_from = "is_canceled"
+              )
+hotel_months1$cancellation_rate <- hotel_months1$canceled / (hotel_months1$not_canceled +  hotel_months1$canceled)
+
+hotel_months2 <- hotel_months1[-2]
+hotel_months2 <- hotel_months2[,-2]
+
+#join
+hotels_rate <- left_join(hotel, hotel_months2, by="arrival_date_month")
+#visualize
+ggplot(hotels_rate, aes(arrival_date_month, fill = is_canceled)) +
+  geom_bar(alpha=0.9) +
+  geom_text(stat = "count", aes(label = ..count..), size=3, breaks = c("1", "0"), hjust=1)+
+  coord_flip() +
+  scale_fill_manual(values = c("#F98125", "#5B84C4"),
+    #"red3", "forestgreen"),
+                name = "Booking Status",
+    breaks = c("1", "0"),
+    label = c("Cancelled", "Not Cancelled"))+
+  labs(#title = "Booking Status",
+       x = "Month",
+       y = "Count") 
+```
+Second, there may be differences in the number of hotel bookings and cancellations for each month, which the histogram in Figure 2 illustrates. The highest number of bookings is registered for the summer, whereas hotels didn't seem to be in high demand in the winter. This is probably due to the fact that most guests are from the European countries, where a majority of people take their holiday in the summer. Unfortunately, the dataset does not specify, in which country the booked hotels are, but this booking pattern leads to the assumption that the hotels may be situated in Europe. As is, the histogram further leads to the assumption that while the number of bookings differs by month, the cancellation rate seems similar for each month. Thus, the cancellation rate is calculated by grouping the dataset by month and dividing the number of cancellations by the total number of bookings. Interestingly, June has the highest cancellation rate with 41.5% of total bookings being cancelled. It is followed by April, May and September. In contrast, the cancellation rates in the winter months are comparably low. The lowest cancellation rate is being recorded in January, with only 30.5% of total bookings cancelled. Overall, there is no clear pattern, but it seems that when the demand is not so high, bookings are less likely to be cancelled.
+
+
+```{r, fig.width=10, fig.height=5, fig.cap="The Relationship between Cancellations, Total Nights Booked, Total Cost and Hotel Type by Month of Arrival"}
+
+hotel_type <-hotel
+hotel_type <- filter(hotel_type, hotel_type$stay_total_cost<5000)
+hotel_type <- filter(hotel_type, hotel_type$stay_total_cost>5)
+#scatter plots with total nights and total cost
+ggplot(hotel_type, aes(x=stay_total_nights,y=stay_total_cost,shape=hotel,color=is_canceled))+
+  facet_wrap(vars(arrival_date_month))+
+  geom_point(alpha=0.2, cex=0.9, position="jitter") +
+  scale_fill_manual(values = c("#F98125", "#5B84C4"), 
+                    aesthetics = "color",
+                name = "Status of Booking",
+    breaks = c("1", "0"),
+    label = c("Cancelled", "Not Cancelled"))+
+  labs(#title = "xx", 
+    shape= "Hotel Type",
+       x = "Total Nights Booked",
+       y = "Total Cost of the Booking (€)")
+
+# ggplot(hotel_type, aes(x=stay_total_nights,y=stay_total_cost,shape=hotel,color=is_canceled))+
+#   facet_wrap(vars(cut_interval(stay_total_cost, n= 10))) +
+#   geom_point(alpha=0.5, cex=0.9, position="jitter") +
+#   scale_fill_manual(values = c("#F98125", "#5B84C4"), 
+#                     aesthetics = "color",
+#                 name = "Status of Booking",
+#     breaks = c("1", "0"),
+#     label = c("Cancelled", "Not Cancelled"))+
+#   labs(#title = "xx", 
+#     shape= "Hotel Type",
+#        x = "Total Nights Booked",
+#        y = "Total Cost of the Booking (€)")
+
+#cancellation rate by hotel type
+hotelsx <- hotel_type %>%
+  group_by(hotel, is_canceled) %>%
+  summarize(n = n()) 
+
+#cancellation rate by price category
+hotelsc <- hotel_type
+
+hotelsc$stay_total_cost[hotelsc$stay_total_cost <= 500] = "Low"
+hotelsc$stay_total_cost[hotelsc$stay_total_cost > 500 & hotelsc$stay_total_cost < 2000  ] = "Medium"
+hotelsc$stay_total_cost[hotelsc$stay_total_cost >= 2000] = "High"
+hotelsc$stay_total_cost <- as.factor(hotelsc$stay_total_cost)
+
+hotelsc$stay_total_cost = factor(hotelsc$stay_total_cost,
+                    levels=c("Low", "Medium", "High"))
+
+hotelsc <- hotelsc %>%
+  group_by(stay_total_cost, is_canceled) %>%
+  summarize(n = n()) 
+
+
+hotel_months1 = hotel_months %>%
+  group_by(arrival_date_month,is_canceled) %>%
+  summarize(n = n()) %>%
+  pivot_wider(arrival_date_month,
+              values_from = "n",
+              names_from = "is_canceled"
+              )
+hotel_months1$cancellation_rate <- hotel_months1$canceled / (hotel_months1$not_canceled +  hotel_months1$canceled)
+
+```
+Figure 3 tries to detangle possible reasons for the comparably higher cancellations rates in high season. The number of nights is plotted against the total cost of the booking for each month. The colors indicate whether a booking was cancelled or not and the shapes indicate the type of hotel. It is evident that the total cost of the bookings increase towards August and decrease towards January.  Further, Resort Hotels seem to be more in demand the summer month compared to the winter. Generally, guests seem to book a longer and more costly stay in Resort compared to City Hotels. Generally, most guests seem to book stays between one and 20 nights, with the highest variety being in January and February. As there are many observations in this dataset, it is not too easy to see which bookings were cancelled or not. 
+
+However, there are three conclusions to be drawn from Figure 3: First, bookings for City Hotels seem to be cancelled more easily than for Resort Hotels. This is confirmed by calculating the cancellation rate for each Hotel Type. Overall, 41.7% of bookings for City Hotels are cancelled, whereas only 27.8% of bookings for Resort Hotels are cancelled. Second, costly stays seem to be cancelled more often than cheaper stays, which is confirmed when splitting the variable `Total cost` into categories (not shown). This does not necessarily apply to July and August. Last, the findings from Figure 2 are emphasized and partly explained by the differences in prices and demand.
+
+## Time between Booking and Arrival Date
+Third, the time between booking and arrival date may influence whether a guest cancels a booking or not. The boxplots for cancellations by hotel type based on lead time show a similar picture for both resort and city hotels. Comparing the medians of cancelled and not cancelled bookings, the chances for cancellation are higher if the time elapsed between booking and arrival is fairly long. This may be connected to cancellation policies and that guests have more time to change their plans or find better deals. Interestingly, the medians of Resort Hotels lie before the medians of City Hotels, meaning that guests generally seem to book Resort Hotels more spontaneously than City Hotels.
+
+```{r, fig.height=2, fig.width=7, fig.cap="Cancellations by Hotel Type based on Time between Booking and Arrival Date"}
+
+ggplot(data = hotel, aes(
+  x = hotel,
+  y = lead_time,
+  fill = is_canceled
+)) +
+  geom_boxplot(position = position_dodge(), alpha= 0.9) +
+  labs(
+    #title = "Cancellation By Hotel Type",
+    #subtitle = "Based on Lead Time",
+    x = "Hotel Type",
+    y = "Days between Booking and Arrival Date"
+  ) +
+  scale_fill_manual( values=c("#F98125", "#5B84C4"),
+                    aesthetics = "fill",
+    name = "Booking Status",
+    breaks = c("1", "0"),
+    label = c("Cancelled", "Not Cancelled")
+  ) + 
+  coord_flip()
+```
+
+## Country of Origin
+Fourth, there may be differences in cancellation rates based on a guest's country of origin, which the worldmap in Figure 5 illustrates. To ensure representability, no rate was calculated for countries with less than 10 observations. Based on this map, guests from European countries except for Portugal, as well as from the United States and Australia have fairly low cancellation rates between 16% (Germans) and 30% (Norwegians). Guests from Portugal cancel 57% of all their bookings. Since there are not many observations from guests with other nationalities, it is refrained from generalizing the cancellation behavior for guests from other countries. Nevertheless, some tendencies are evident.
+
+```{r, fig.height=4, fig.width=10, fig.cap="Cancellation Rate by Country of Origin"}
+#only countries with 10 or more bookings
+hotel_country <- hotel %>%
+  group_by(country) %>%
+  mutate(count.c = n()) %>%
+  filter(count.c >=10)
+#cancellation rate
+hotel_country$is_canceled <- as.factor(hotel_country$is_canceled)
+levels(hotel_country$is_canceled) <- c("not_canceled", "canceled")
+
+hotel_country1 = hotel_country %>%
+  group_by(country,is_canceled) %>%
+  summarize(n = n()) %>%
+  pivot_wider(country,
+              values_from = "n",
+              names_from = "is_canceled"
+              )
+hotel_country1[is.na(hotel_country1)] <- 0
+hotel_country1$cancellation_rate <- hotel_country1$canceled/(hotel_country1$not_canceled +  hotel_country1$canceled)
+
+#get worldmap
+library(rworldmap)
+library(rnaturalearth)
+worldmap <- ne_countries(returnclass = "sf")
+
+
+worldmap <- worldmap %>%
+  rename(country = adm0_a3)
+
+joined <- left_join(worldmap, hotel_country1, by="country")
+
+
+#visualize
+library(RColorBrewer)
+library(ggthemes)
+ ggplot(joined)+
+  geom_sf(data=joined, fill = "light grey")+
+  geom_sf(data=joined, aes(fill=cancellation_rate, label=name)) +
+  scale_fill_distiller( direction=1, palette="Oranges", na.value = NA) +
+  labs(fill = "Cancellation rate") +
+  theme_tufte()
+
+#library(plotly)
+#ggplotly(plot)
+
+
+
+```
+
+
+## Category of Traveller(s)
+Last, the category of traveller(s) may be a characteristic that influences the cancellation behaviour. Figure 6 plots the cancellations based on category of traveller, hotel type, lenght of stay and the total cost of the booking. Overall, previous findings are reconfirmed, for example that bookings for City Hotels are more likely to be cancelled than for Resort Hotels among all traveller categories. Additionally, most bookings are made for two adults. These tend to prefer Resort over City Hotels, where they tend to book more costly stays. A group of adults seems to have the lowest cancellation rates for Resort Hotels among all traveller categories, but they tend to not stay longer than one or two weeks. Naturally, the total cost of the booking seems higher for groups and families than for guests travelling alone, whereas two adults can spend a considerable amount on a hotel. It can be assumed that most of them are couples, who might enjoy a relaxing holiday with some luxury.
+
+```{r, fig.height=5, fig.width=10, fig.cap="Cancellations based on Category of Traveller(s), Hotel Type, Total Nights Booked and Total Cost"}
+
+
+
+#make categories
+hotel_guests <- hotel
+
+hotel_guests1 <- hotel_guests %>%
+  mutate(total_guests = adults + children + babies) %>%
+  mutate(guest_category = case_when(adults == 1 & children_all==0 ~ "Alone",
+                                    adults == 2 & children_all==0 ~ "Two adults",
+                                    adults > 2 & children_all==0 ~ "Group (adults only)",
+                                    adults >= 1 & children_all>=1  ~ "Family with child(ren)"
+                                    )) %>%
+  drop_na(guest_category)
+
+hotel_guests1$guest_category <- ordered(hotel_guests1$guest_category, levels = c("Alone", "Two adults", "Group (adults only)", "Family with child(ren)"))
+
+hotel_guests1 <- filter(hotel_guests1, hotel_guests1$stay_total_cost<5000)
+#visualize
+ggplot(hotel_guests1, aes(x=stay_total_nights,y=stay_total_cost,color=is_canceled))+
+  facet_grid(vars(hotel), vars(guest_category))+
+  geom_point(alpha=0.1, cex=0.9, position="jitter") +
+  scale_fill_manual(values = c("#F98125", "#5B84C4"), 
+                    aesthetics = "color",
+                name = "Status of Booking",
+    breaks = c("1", "0"),
+    label = c("Cancelled", "Not Cancelled"))+
+  labs(#title = "xx",
+      x = "Total Nights Booked",
+       y = "Total Cost of the Booking (€)")
+
+```
+# Conclusion
+In conclusion, the visual analysis of the  `Hotel bookings` dataset reveals some insights on characteristics that influence whether a booking os canceled or not. A guest that books a specific hotel for the first time is more likely to cancel than a repeated guest. Further, the month of arrival seems to make a difference, such that bookings for the summer have higher cancellation rates than for the winter. In addition, the cancellation rates for Resort Hotels are considerably lower compared to City Hotels. Also, the total cost of a booking influences the cancellation behavior such that costly bookings are more likely to be cancelled than comparably cheaper stays. The length of a stay on the other hand does not seem to majorly determine cancellations. Looking at the time between booking and arrival, stays that are shortly after the booking date are less likely to get canceled than if there is a long time in between booking and arrival. One should be careful when making assumptions of cancellation rates by country of origin based on the used dataset. Among guests from European countries, Germans have the lowest cancellation rate, whereas Portuguese guests are more likely to cancel their booking than not. Lastly, the category of traveller(s) does not reveal major differences in the cancellation behavior of different types of travellers.
+
+In sum, a group of repeated guests that book a relatively cheap stay in the off-season for a Resort Hotel close to the arrival date seem to be least likely to cancel their booking. Possibly, they are from a European country, such as Germany. However, as the used dataset contains a large number of observations, some plots are hard to interpret regarding the differences between cancelled and not cancelled bookings. Also, one should be careful when generalizing these findings, as there may be a relationship between the investigated variables and cancellations, but these could also be due to some variables that are excluded from the dataset (omitted variable bias). Nevertheless, this analysis revealed some interesting insights and may be useful when trying to explain why a booking was cancelled.
+
